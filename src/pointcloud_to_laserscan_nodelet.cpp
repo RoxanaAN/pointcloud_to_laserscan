@@ -70,6 +70,8 @@ void PointCloudToLaserScanNodelet::onInit()
   private_nh_.param<double>("range_max", range_max_, std::numeric_limits<double>::max());
   private_nh_.param<double>("inf_epsilon", inf_epsilon_, 1.0);
 
+  private_nh_.param<double>("min_intensity", min_intensity_, 0.0);
+
   int concurrency_level;
   private_nh_.param<int>("concurrency_level", concurrency_level, 1);
   private_nh_.param<bool>("use_inf", use_inf_, true);
@@ -171,6 +173,7 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
   {
     output.ranges.assign(ranges_size, output.range_max + inf_epsilon_);
   }
+  output.intensities.assign(ranges_size, 0);
 
   sensor_msgs::PointCloud2ConstPtr cloud_out;
   sensor_msgs::PointCloud2Ptr cloud;
@@ -197,8 +200,8 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
 
   // Iterate through pointcloud
   for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_out, "x"), iter_y(*cloud_out, "y"),
-       iter_z(*cloud_out, "z");
-       iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z)
+       iter_z(*cloud_out, "z"), iter_i(*cloud_out, "intensity");
+       iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z, ++iter_i)
   {
     if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))
     {
@@ -233,11 +236,13 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
       continue;
     }
 
+    double intensity = *iter_i;
     // overwrite range at laserscan ray if new range is smaller
     int index = (angle - output.angle_min) / output.angle_increment;
-    if (range < output.ranges[index])
+    if (range < output.ranges[index] and intensity > min_intensity_)
     {
       output.ranges[index] = range;
+      output.intensities[index] = intensity;
     }
   }
   pub_.publish(output);

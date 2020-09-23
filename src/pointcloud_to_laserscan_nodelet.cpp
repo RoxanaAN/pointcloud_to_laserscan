@@ -200,8 +200,8 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
 
   // Iterate through pointcloud
   for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_out, "x"), iter_y(*cloud_out, "y"),
-       iter_z(*cloud_out, "z"), iter_i(*cloud_out, "intensity");
-       iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z, ++iter_i)
+       iter_z(*cloud_out, "z"); //, iter_i(*cloud_out, "intensity");
+       iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z/*, ++iter_i*/)
   {
     if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))
     {
@@ -236,7 +236,7 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
       continue;
     }
 
-    double intensity = *iter_i;
+    double intensity = 0; //*iter_i;
     // overwrite range at laserscan ray if new range is smaller
     int index = (angle - output.angle_min) / output.angle_increment;
     if (range < output.ranges[index] and intensity >= min_intensity_)

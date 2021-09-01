@@ -65,6 +65,7 @@ void PointCloudToLaserScanNodelet::onInit()
   private_nh_.param<double>("angle_min", angle_min_, -M_PI);
   private_nh_.param<double>("angle_max", angle_max_, M_PI);
   private_nh_.param<double>("angle_increment", angle_increment_, M_PI / 180.0);
+  private_nh_.param<bool>("keep_original_angle_frame", keep_original_angle_frame_, "");
   private_nh_.param<double>("scan_time", scan_time_, 1.0 / 30.0);
   private_nh_.param<double>("range_min", range_min_, 0.0);
   private_nh_.param<double>("range_max", range_max_, std::numeric_limits<double>::max());
@@ -177,6 +178,7 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
 
   sensor_msgs::PointCloud2ConstPtr cloud_out;
   sensor_msgs::PointCloud2Ptr cloud;
+  sensor_msgs::PointCloud2ConstPtr cloud_iterator;
 
   // Transform cloud if necessary
   if (!(output.header.frame_id == cloud_msg->header.frame_id))
@@ -198,9 +200,17 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
     cloud_out = cloud_msg;
   }
 
+  
+  if (keep_original_angle_frame_) {
+    cloud_iterator = cloud_msg;
+  }
+  else {
+    cloud_iterator = cloud_out;
+  }
+
   // Iterate through pointcloud
-  for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_out, "x"), iter_y(*cloud_out, "y"),
-       iter_z(*cloud_out, "z"); //, iter_i(*cloud_out, "intensity");
+  for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_iterator, "x"), iter_y(*cloud_iterator, "y"),
+       iter_z(*cloud_iterator, "z"); //, iter_i(*cloud_iterator, "intensity");
        iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z/*, ++iter_i*/)
   {
     if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))

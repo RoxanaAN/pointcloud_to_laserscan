@@ -65,7 +65,7 @@ void PointCloudToLaserScanNodelet::onInit()
   private_nh_.param<double>("angle_min", angle_min_, -M_PI);
   private_nh_.param<double>("angle_max", angle_max_, M_PI);
   private_nh_.param<double>("angle_increment", angle_increment_, M_PI / 180.0);
-  private_nh_.param<bool>("keep_original_angle_frame", keep_original_angle_frame_, "");
+  private_nh_.param<bool>("keep_original_angle_frame", keep_original_angle_frame_, true);
   private_nh_.param<double>("scan_time", scan_time_, 1.0 / 30.0);
   private_nh_.param<double>("range_min", range_min_, 0.0);
   private_nh_.param<double>("range_max", range_max_, std::numeric_limits<double>::max());
@@ -179,6 +179,7 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
   sensor_msgs::PointCloud2ConstPtr cloud_out;
   sensor_msgs::PointCloud2Ptr cloud;
   sensor_msgs::PointCloud2ConstPtr cloud_iterator;
+  sensor_msgs::PointCloud2ConstPtr original_cloud_iterator;
 
   // Transform cloud if necessary
   if (!(output.header.frame_id == cloud_msg->header.frame_id))
@@ -200,61 +201,122 @@ void PointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPt
     cloud_out = cloud_msg;
   }
 
-  
-  if (keep_original_angle_frame_) {
-    cloud_iterator = cloud_msg;
-  }
-  else {
-    cloud_iterator = cloud_out;
-  }
+  cloud_iterator = cloud_out;
 
-  // Iterate through pointcloud
-  for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_iterator, "x"), iter_y(*cloud_iterator, "y"),
-       iter_z(*cloud_iterator, "z"); //, iter_i(*cloud_iterator, "intensity");
-       iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z/*, ++iter_i*/)
+  if (keep_original_angle_frame_)
   {
-    if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))
+    original_cloud_iterator = cloud_msg;
+
+    if(cloud_iterator->data.size() != original_cloud_iterator->data.size())
     {
-      NODELET_DEBUG("rejected for nan in point(%f, %f, %f)\n", *iter_x, *iter_y, *iter_z);
-      continue;
+      NODELET_WARN_STREAM_THROTTLE(1.0, "Both clouds should be the same size, but original cloud has "
+       << original_cloud_iterator->data.size() << " elements and transformed cloud has " << original_cloud_iterator->data.size()
+       << "elements. Potential data loss!");
     }
 
-    if (*iter_z > max_height_ || *iter_z < min_height_)
+    // Iterate through pointcloud
+    for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_iterator, "x"), iter_y(*cloud_iterator, "y"),
+         iter_z(*cloud_iterator, "z"), iter_original_x(*original_cloud_iterator, "x"),
+         iter_original_y(*original_cloud_iterator, "y"); //, iter_i(*cloud_iterator, "intensity");
+         iter_x != iter_x.end() || iter_original_x != iter_original_x.end();
+         ++iter_x, ++iter_y, ++iter_z, ++iter_original_x, ++iter_original_y) /*, ++iter_i*/
     {
-      NODELET_DEBUG("rejected for height %f not in range (%f, %f)\n", *iter_z, min_height_, max_height_);
-      continue;
-    }
 
-    double range = hypot(*iter_x, *iter_y);
-    if (range < range_min_)
-    {
-      NODELET_DEBUG("rejected for range %f below minimum value %f. Point: (%f, %f, %f)", range, range_min_, *iter_x,
-                    *iter_y, *iter_z);
-      continue;
-    }
-    if (range > range_max_)
-    {
-      NODELET_DEBUG("rejected for range %f above maximum value %f. Point: (%f, %f, %f)", range, range_max_, *iter_x,
-                    *iter_y, *iter_z);
-      continue;
-    }
+      if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))
+      {
+        NODELET_DEBUG("rejected for nan in point(%f, %f, %f)\n", *iter_x, *iter_y, *iter_z);
+        continue;
+      }
 
-    double angle = atan2(*iter_y, *iter_x);
-    if (angle < output.angle_min || angle > output.angle_max)
-    {
-      NODELET_DEBUG("rejected for angle %f not in range (%f, %f)\n", angle, output.angle_min, output.angle_max);
-      continue;
-    }
+      if (*iter_z > max_height_ || *iter_z < min_height_)
+      {
+        NODELET_DEBUG("rejected for height %f not in range (%f, %f)\n", *iter_z, min_height_, max_height_);
+        continue;
+      }
 
-    double intensity = 0; //*iter_i;
-    // overwrite range at laserscan ray if new range is smaller
-    int index = (angle - output.angle_min) / output.angle_increment;
-    if (range < output.ranges[index] and intensity >= min_intensity_)
-    {
-      output.ranges[index] = range;
-      output.intensities[index] = intensity;
+      double range = hypot(*iter_x, *iter_y);
+      if (range < range_min_)
+      {
+        NODELET_DEBUG("rejected for range %f below minimum value %f. Point: (%f, %f, %f)", range, range_min_, *iter_x,
+                      *iter_y, *iter_z);
+        continue;
+      }
+      if (range > range_max_)
+      {
+        NODELET_DEBUG("rejected for range %f above maximum value %f. Point: (%f, %f, %f)", range, range_max_, *iter_x,
+                      *iter_y, *iter_z);
+        continue;
+      }
+
+      double angle = atan2(*iter_original_y, *iter_original_x);
+      if (angle < output.angle_min || angle > output.angle_max)
+      {
+        NODELET_DEBUG("rejected for angle %f not in range (%f, %f)\n", angle, output.angle_min, output.angle_max);
+        continue;
+      }
+
+      double intensity = 0; //*iter_i;
+      // overwrite range at laserscan ray if new range is smaller
+      int index = (angle - output.angle_min) / output.angle_increment;
+      if (range < output.ranges[index] and intensity >= min_intensity_)
+      {
+        output.ranges[index] = range;
+        output.intensities[index] = intensity;
+      }
     }
   }
+  else
+  {
+    // Iterate through pointcloud
+    for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_iterator, "x"), iter_y(*cloud_iterator, "y"),
+         iter_z(*cloud_iterator, "z"); //, iter_i(*cloud_iterator, "intensity");
+         iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z/*, ++iter_i*/)
+    {
+
+      if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))
+      {
+        NODELET_DEBUG("rejected for nan in point(%f, %f, %f)\n", *iter_x, *iter_y, *iter_z);
+        continue;
+      }
+
+      if (*iter_z > max_height_ || *iter_z < min_height_)
+      {
+        NODELET_DEBUG("rejected for height %f not in range (%f, %f)\n", *iter_z, min_height_, max_height_);
+        continue;
+      }
+
+      double range = hypot(*iter_x, *iter_y);
+      if (range < range_min_)
+      {
+        NODELET_DEBUG("rejected for range %f below minimum value %f. Point: (%f, %f, %f)", range, range_min_, *iter_x,
+                      *iter_y, *iter_z);
+        continue;
+      }
+      if (range > range_max_)
+      {
+        NODELET_DEBUG("rejected for range %f above maximum value %f. Point: (%f, %f, %f)", range, range_max_, *iter_x,
+                      *iter_y, *iter_z);
+        continue;
+      }
+
+      double angle = atan2(*iter_y, *iter_x);
+      if (angle < output.angle_min || angle > output.angle_max)
+      {
+        NODELET_DEBUG("rejected for angle %f not in range (%f, %f)\n", angle, output.angle_min, output.angle_max);
+        continue;
+      }
+
+      double intensity = 0; //*iter_i;
+      // overwrite range at laserscan ray if new range is smaller
+      int index = (angle - output.angle_min) / output.angle_increment;
+      if (range < output.ranges[index] and intensity >= min_intensity_)
+      {
+        output.ranges[index] = range;
+        output.intensities[index] = intensity;
+      }
+    }
+  }
+
   pub_.publish(output);
 }
 }  // namespace pointcloud_to_laserscan
